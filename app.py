@@ -1,19 +1,13 @@
-import streamlit as st
 import pandas as pd
+import gradio as gr
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
-# Raw GitHub dataset link
+# Load dataset
 DATA_URL = 'https://raw.githubusercontent.com/VishalBhagat01/ML_MODEL/main/Mental_Heaalth.csv'
 
-# Title
-st.title("🧠 Mental Health Treatment Predictor")
-st.write("This app predicts whether a person is likely to seek treatment for mental health issues based on basic demographic and work-related inputs.")
-
-# Load and train model
-@st.cache(allow_output_mutation=True)
-def load_and_train():
+# Load and train model (only once)
+def train_model():
     df = pd.read_csv(DATA_URL)
     df = df.dropna()
 
@@ -21,35 +15,20 @@ def load_and_train():
     le = LabelEncoder()
     df['treatment'] = le.fit_transform(df['treatment'])
 
-    # Features and target
     X = df.drop('treatment', axis=1)
     y = df['treatment']
+    X_encoded = pd.get_dummies(X)
 
-    # Encode categorical features
-    X = pd.get_dummies(X)
-
-    # Train model
     model = RandomForestClassifier()
-    model.fit(X, y)
-
-    return model, X.columns
-
-model, model_columns = load_and_train()
-
-# Input form
-with st.form("prediction_form"):
-    age = st.slider("Age", 18, 100, 30)
-    gender = st.selectbox("Gender", ["Male", "Female", "Other"])
-    country = st.text_input("Country", "United States")
-    self_employed = st.selectbox("Are you self-employed?", ["Yes", "No"])
-    family_history = st.selectbox("Any family history of mental illness?", ["Yes", "No"])
-    work_interfere = st.selectbox("Does your work interfere with mental health?", ["Often", "Rarely", "Never", "Sometimes"])
+    model.fit(X_encoded, y)
     
-    submit = st.form_submit_button("Predict")
+    return model, X_encoded.columns
 
-# On form submission
-if submit:
-    user_input = pd.DataFrame([{
+model, model_columns = train_model()
+
+# Inference function
+def predict(age, gender, country, self_employed, family_history, work_interfere):
+    input_df = pd.DataFrame([{
         'Age': age,
         'Gender': gender,
         'Country': country,
@@ -57,17 +36,33 @@ if submit:
         'family_history': family_history,
         'work_interfere': work_interfere
     }])
+    
+    input_encoded = pd.get_dummies(input_df)
 
-    input_encoded = pd.get_dummies(user_input)
-
-    # Add any missing columns
+    # Ensure all required columns exist
     for col in model_columns:
         if col not in input_encoded:
             input_encoded[col] = 0
 
-    # Match column order
     input_encoded = input_encoded[model_columns]
 
-    # Make prediction
-    prediction = model.predict(input_encoded)[0]
-    st.success("✅ Likely to Seek Treatment" if prediction == 1 else "❌ Unlikely to Seek Treatment")
+    pred = model.predict(input_encoded)[0]
+    return "✅ Likely to Seek Treatment" if pred == 1 else "❌ Unlikely to Seek Treatment"
+
+# Gradio UI
+demo = gr.Interface(
+    fn=predict,
+    inputs=[
+        gr.Slider(18, 100, value=30, label="Age"),
+        gr.Radio(["Male", "Female", "Other"], label="Gender"),
+        gr.Textbox(label="Country", value="United States"),
+        gr.Radio(["Yes", "No"], label="Are you self-employed?"),
+        gr.Radio(["Yes", "No"], label="Family history of mental illness?"),
+        gr.Radio(["Often", "Rarely", "Never", "Sometimes"], label="Work interference with mental health?")
+    ],
+    outputs=gr.Textbox(label="Prediction"),
+    title="🧠 Mental Health Treatment Predictor",
+    description="Fill out the form to predict whether someone is likely to seek mental health treatment."
+)
+
+demo.launch()
